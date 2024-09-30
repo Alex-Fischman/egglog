@@ -364,7 +364,7 @@ impl TypeInfo {
         let Rule { span, head, body } = rule;
         let mut constraints = vec![];
 
-        let (query, mapped_query) = Facts(body.clone()).to_query(self, symbol_gen);
+        let (query, mapped_query) = GenericFacts(body.clone()).to_query(self, symbol_gen);
         constraints.extend(query.get_constraints(self)?);
 
         let mut binding = query.get_vars();
@@ -395,12 +395,12 @@ impl TypeInfo {
         })
     }
 
-    fn typecheck_facts(
+    pub fn typecheck_facts(
         &self,
         symbol_gen: &mut SymbolGen,
         facts: &[Fact],
     ) -> Result<Vec<ResolvedFact>, TypeError> {
-        let (query, mapped_facts) = Facts(facts.to_vec()).to_query(self, symbol_gen);
+        let (query, mapped_facts) = GenericFacts(facts.to_vec()).to_query(self, symbol_gen);
         let mut problem = Problem::default();
         problem.add_query(&query, self)?;
         let assignment = problem
