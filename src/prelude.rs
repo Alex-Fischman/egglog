@@ -80,14 +80,18 @@ mod tests {
             Fact::Eq(DUMMY_SPAN.clone(), vec![y, seven]),
         ]);
 
+        let mut results = Vec::new();
         let callback = |values: &HashMap<Symbol, Value>| {
-            assert_eq!(values.len(), 2);
-            assert_eq!(values[&x_sym].bits, 13);
-            assert_eq!(values[&y_sym].bits, 5);
+            results.push(values.clone());
             Ok(())
         };
 
         query(&mut egraph, &facts, callback).unwrap();
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].len(), 2);
+        assert_eq!(results[0][&x_sym].bits, 13);
+        assert_eq!(results[0][&y_sym].bits, 5);
 
         Ok(())
     }
