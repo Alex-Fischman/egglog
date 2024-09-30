@@ -38,14 +38,14 @@ impl<Head> HeadOrEq<Head> {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct SpecializedPrimitive {
+pub struct SpecializedPrimitive {
     pub(crate) primitive: Primitive,
     pub(crate) input: Vec<ArcSort>,
     pub(crate) output: ArcSort,
 }
 
 #[derive(Debug, Clone)]
-pub(crate) enum ResolvedCall {
+pub enum ResolvedCall {
     Func(FuncType),
     Primitive(SpecializedPrimitive),
 }
@@ -807,7 +807,7 @@ where
             body,
         } = self;
 
-        let (body, _correspondence) = Facts(body.clone()).to_query(typeinfo, fresh_gen);
+        let (body, _correspondence) = GenericFacts(body.clone()).to_query(typeinfo, fresh_gen);
         let mut binding = body.get_vars();
         let (head, _correspondence) = head.to_core_actions(typeinfo, &mut binding, fresh_gen)?;
         Ok(GenericCoreRule {

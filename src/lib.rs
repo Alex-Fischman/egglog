@@ -18,6 +18,7 @@ mod core;
 mod extract;
 mod function;
 mod gj;
+pub mod prelude;
 mod serialize;
 pub mod sort;
 mod termdag;
