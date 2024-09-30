@@ -1161,9 +1161,10 @@ pub enum GenericFact<Head, Leaf> {
     Fact(GenericExpr<Head, Leaf>),
 }
 
-pub struct Facts<Head, Leaf>(pub Vec<GenericFact<Head, Leaf>>);
+pub type Facts = GenericFacts<Symbol, Symbol>;
+pub struct GenericFacts<Head, Leaf>(pub Vec<GenericFact<Head, Leaf>>);
 
-impl<Head, Leaf> Facts<Head, Leaf>
+impl<Head, Leaf> GenericFacts<Head, Leaf>
 where
     Head: Clone + Display,
     Leaf: Clone + PartialEq + Eq + Display + Hash,
