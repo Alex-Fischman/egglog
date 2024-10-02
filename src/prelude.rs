@@ -1,12 +1,39 @@
 use crate::*;
 
+pub mod expr {
+    use super::*;
+
+    pub fn var(name: &str) -> Expr {
+        Expr::Var(DUMMY_SPAN.clone(), name.into())
+    }
+
+    pub fn int(value: i64) -> Expr {
+        Expr::Lit(DUMMY_SPAN.clone(), Literal::Int(value))
+    }
+
+    pub fn call(f: &str, xs: Vec<Expr>) -> Expr {
+        Expr::Call(DUMMY_SPAN.clone(), f.into(), xs)
+    }
+}
+
+pub mod fact {
+    use super::*;
+
+    pub fn equals(a: Expr, b: Expr) -> Fact {
+        Fact::Eq(DUMMY_SPAN.clone(), vec![a, b])
+    }
+
+    pub fn facts(facts: Vec<Fact>) -> Facts {
+        GenericFacts(facts)
+    }
+}
+
 /// Run a query on the database. Returns `true` on success.
 /// The `EGraph` is mutable because normalizing the query creates new names.
-pub fn query(
-    egraph: &mut EGraph,
-    facts: &Facts,
-    mut callback: impl FnMut(&HashMap<Symbol, Value>) -> Result<(), ()>,
-) -> Result<(), TypeError> {
+pub fn query<F>(egraph: &mut EGraph, facts: &Facts, mut callback: F) -> Result<(), TypeError>
+where
+    F: FnMut(&HashMap<&'static str, Value>) -> Result<(), ()>,
+{
     let facts = egraph
         .type_info
         .typecheck_facts(&mut egraph.symbol_gen, &facts.0)?;
@@ -23,16 +50,16 @@ pub fn query(
     let ordering = &query.get_vars();
     let query = egraph.compile_gj_query(query, ordering);
 
-    let mut map: HashMap<Symbol, Value> = Default::default();
+    let mut map = HashMap::default();
     let f = |values: &[Value]| -> Result<(), ()> {
         map.clear();
         for (i, x) in values.iter().enumerate() {
-            map.insert(ordering[i].name, *x);
+            map.insert(ordering[i].name.into(), *x);
         }
         callback(&map)
     };
 
-    egraph.run_query(&query, egraph.timestamp, false, f);
+    egraph.run_query(&query, 0, false, f);
 
     Ok(())
 }
@@ -59,7 +86,7 @@ mod tests {
 ) (
 	(set (fib (+ x 2)) (+ f0 f1))
 ))
-(run 7)
+(run 10)
         ",
         )?;
         Ok(egraph)
@@ -67,31 +94,27 @@ mod tests {
 
     #[test]
     fn test_query() -> Result<(), Error> {
+        use expr::*;
+        use fact::*;
+
         let mut egraph = build_test_database()?;
 
-        let x_sym = "x".into();
-        let y_sym = "y".into();
-        let x = Expr::Var(DUMMY_SPAN.clone(), x_sym);
-        let y = Expr::Var(DUMMY_SPAN.clone(), y_sym);
-        let seven = Expr::Lit(DUMMY_SPAN.clone(), Literal::Int(7));
-        let fib_x = Expr::Call(DUMMY_SPAN.clone(), "fib".into(), vec![x]);
-        let facts = GenericFacts(vec![
-            Fact::Eq(DUMMY_SPAN.clone(), vec![y.clone(), fib_x]),
-            Fact::Eq(DUMMY_SPAN.clone(), vec![y, seven]),
+        let facts = facts(vec![
+            equals(call("fib", vec![var("x")]), var("y")),
+            equals(var("y"), int(13)),
         ]);
 
         let mut results = Vec::new();
-        let callback = |values: &HashMap<Symbol, Value>| {
+        let callback = |values: &HashMap<&'static str, Value>| {
             results.push(values.clone());
             Ok(())
         };
 
         query(&mut egraph, &facts, callback).unwrap();
 
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].len(), 2);
-        assert_eq!(results[0][&x_sym].bits, 13);
-        assert_eq!(results[0][&y_sym].bits, 5);
+        let mut expected = HashMap::default();
+        expected.insert("x", 7.into());
+        assert_eq!(results, vec![expected]);
 
         Ok(())
     }
