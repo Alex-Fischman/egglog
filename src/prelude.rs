@@ -28,12 +28,33 @@ pub mod fact {
     }
 }
 
-/// Run a query on the database. Returns `true` on success.
-/// The `EGraph` is mutable because normalizing the query creates new names.
-pub fn query<F>(egraph: &mut EGraph, facts: &Facts, mut callback: F) -> Result<(), TypeError>
-where
-    F: FnMut(&HashMap<&'static str, Value>) -> Result<(), ()>,
-{
+pub struct QueryResults {
+    pub ordering: Vec<&'static str>,
+    pub any_matches: bool,
+    data: Vec<Value>,
+}
+
+impl QueryResults {
+    /// Returns an iterator over the results of each query match
+    /// as a slice of `Value`s. The values are in the ordering
+    /// defined by `ordering`. See `QueryResults::zip_names_and`
+    /// for a convenience method to match these up.
+    pub fn iter(&self) -> impl Iterator<Item = &[Value]> {
+        self.data.chunks(self.ordering.len())
+    }
+
+    /// Given a slice returned from `QueryResults::iter`, attach variable names
+    /// to the values. This is useful for e.g. collecting into a map.
+    pub fn zip_names_and<'a>(
+        &'a self,
+        values: &'a [Value],
+    ) -> impl Iterator<Item = (&'static str, Value)> + 'a {
+        self.ordering.iter().copied().zip(values.iter().copied())
+    }
+}
+
+/// Run a query on the database.
+pub fn query(egraph: &mut EGraph, facts: &Facts) -> Result<QueryResults, TypeError> {
     let facts = egraph
         .type_info
         .typecheck_facts(&mut egraph.symbol_gen, &facts.0)?;
@@ -50,18 +71,17 @@ where
     let ordering = &query.get_vars();
     let query = egraph.compile_gj_query(query, ordering);
 
-    let mut map = HashMap::default();
-    let f = |values: &[Value]| -> Result<(), ()> {
-        map.clear();
-        for (i, x) in values.iter().enumerate() {
-            map.insert(ordering[i].name.into(), *x);
-        }
-        callback(&map)
+    let mut results = QueryResults {
+        ordering: ordering.iter().map(|v| v.name.into()).collect(),
+        any_matches: false,
+        data: vec![],
     };
-
-    egraph.run_query(&query, 0, false, f);
-
-    Ok(())
+    egraph.run_query(&query, 0, false, |values| {
+        results.any_matches = true;
+        results.data.extend(values);
+        Ok(())
+    });
+    Ok(results)
 }
 
 pub fn serialize(egraph: &EGraph, config: SerializeConfig) {
@@ -104,17 +124,16 @@ mod tests {
             equals(var("y"), int(13)),
         ]);
 
-        let mut results = Vec::new();
-        let callback = |values: &HashMap<&'static str, Value>| {
-            results.push(values.clone());
-            Ok(())
-        };
+        let results = query(&mut egraph, &facts)?;
 
-        query(&mut egraph, &facts, callback).unwrap();
-
-        let mut expected = HashMap::default();
-        expected.insert("x", 7.into());
-        assert_eq!(results, vec![expected]);
+        assert!(results.data.len() == 1);
+        for values in results.iter() {
+            assert!(values.len() == 1);
+            for (var, val) in results.zip_names_and(values) {
+                assert_eq!(var, "x");
+                assert_eq!(val, 7.into());
+            }
+        }
 
         Ok(())
     }
