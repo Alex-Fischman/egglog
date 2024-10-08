@@ -46,52 +46,62 @@ pub fn query(egraph: &mut EGraph, facts: &Facts) -> Result<QueryResults, TypeErr
     let ordering = &query.get_vars();
     let query = egraph.compile_gj_query(query, ordering);
 
-    let mut results = QueryResults {
-        vars: VarOrdering(ordering.iter().map(|v| v.name.into()).collect()),
-        n_matches: 0,
-        data: vec![],
-    };
+    let mut results = QueryResults::new(ordering.iter().map(|v| v.name.into()).collect());
     egraph.run_query(&query, 0, false, |values| {
-        results.n_matches += 1;
+        results.num_matches += 1;
         results.data.extend(values);
         Ok(())
     });
-    assert_eq!(results.n_matches * ordering.len(), results.data.len());
+    assert_eq!(results.num_matches * ordering.len(), results.data.len());
     Ok(results)
 }
 
 /// The result of running `query`.
 pub struct QueryResults {
-    pub vars: VarOrdering,
-    pub n_matches: usize,
+    num_matches: usize,
+    vars: Vec<&'static str>,
     data: Vec<Value>,
+    map: IndexMap<&'static str, Value>,
 }
 
 impl QueryResults {
-    /// Returns an iterator over the results of each query match
-    /// as a slice of `Value`s. The values are in the ordering
-    /// defined by `vars`; see `VarOrdering::zip`.
-    pub fn iter(&self) -> impl Iterator<Item = &[Value]> {
-        self.data.chunks(self.vars.0.len())
+    fn new(vars: Vec<&'static str>) -> Self {
+        let map = vars.iter().map(|v| (*v, Value::fake())).collect();
+        QueryResults {
+            num_matches: 0,
+            vars,
+            data: vec![],
+            map,
+        }
+    }
+
+    /// Iterate over the results of the query. Has to take `self` as
+    /// mutable so that the lifetimes can be expressed.
+    pub fn iter(&mut self) -> impl Iterator<Item = &IndexMap<&'static str, Value>> {
+        QueryIterator { ptr: self, idx: 0 }
     }
 }
 
-/// A list of variable names.
-pub struct VarOrdering(pub Vec<&'static str>);
-
-impl VarOrdering {
-    /// Given a slice of values, attach variable names to the values.
-    /// This is useful for e.g. collecting into a map.
-    pub fn zip<'a>(
-        &'a self,
-        values: &'a [Value],
-    ) -> impl Iterator<Item = (&'static str, Value)> + 'a {
-        self.0.iter().copied().zip(values.iter().copied())
-    }
+struct QueryIterator<'a> {
+    ptr: &'a mut QueryResults,
+    idx: usize,
 }
 
-pub fn serialize(egraph: &EGraph, config: SerializeConfig) {
-    egraph.serialize(config);
+impl<'a> Iterator for QueryIterator<'a> {
+    type Item = &'a IndexMap<&'static str, Value>;
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.idx >= self.ptr.data.len() {
+            return None;
+        }
+
+        for (i, var) in self.ptr.vars.iter().enumerate() {
+            let val = self.ptr.data[self.idx + i];
+            *self.ptr.map.get_mut(var).unwrap() = val;
+        }
+
+        self.idx += self.ptr.vars.len();
+        Some(&self.ptr.map)
+    }
 }
 
 #[cfg(test)]
@@ -130,15 +140,13 @@ mod tests {
             equals(var("y"), int(13)),
         ]);
 
-        let results = query(&mut egraph, &facts)?;
+        let mut results = query(&mut egraph, &facts)?;
 
-        assert!(results.data.len() == 1);
-        for values in results.iter() {
-            assert!(values.len() == 1);
-            for (var, val) in results.vars.zip(values) {
-                assert_eq!(var, "x");
-                assert_eq!(val, 7.into());
-            }
+        let mut expected: IndexMap<&str, Value> = Default::default();
+        expected.insert("x", 7.into());
+
+        for map in results.iter() {
+            assert_eq!(map, &expected);
         }
 
         Ok(())
