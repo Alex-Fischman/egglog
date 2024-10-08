@@ -48,21 +48,22 @@ pub fn query(egraph: &mut EGraph, facts: &Facts) -> Result<QueryResults, TypeErr
 
     let mut results = QueryResults {
         vars: VarOrdering(ordering.iter().map(|v| v.name.into()).collect()),
-        any_matches: false,
+        n_matches: 0,
         data: vec![],
     };
     egraph.run_query(&query, 0, false, |values| {
-        results.any_matches = true;
+        results.n_matches += 1;
         results.data.extend(values);
         Ok(())
     });
+    assert_eq!(results.n_matches * ordering.len(), results.data.len());
     Ok(results)
 }
 
 /// The result of running `query`.
 pub struct QueryResults {
     pub vars: VarOrdering,
-    pub any_matches: bool,
+    pub n_matches: usize,
     data: Vec<Value>,
 }
 
