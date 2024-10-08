@@ -417,7 +417,7 @@ impl TypeInfo {
         Ok(annotated_facts)
     }
 
-    fn typecheck_actions(
+    pub fn typecheck_actions(
         &self,
         symbol_gen: &mut SymbolGen,
         actions: &Actions,
