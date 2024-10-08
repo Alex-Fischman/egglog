@@ -28,31 +28,6 @@ pub mod fact {
     }
 }
 
-pub struct QueryResults {
-    pub ordering: Vec<&'static str>,
-    pub any_matches: bool,
-    data: Vec<Value>,
-}
-
-impl QueryResults {
-    /// Returns an iterator over the results of each query match
-    /// as a slice of `Value`s. The values are in the ordering
-    /// defined by `ordering`. See `QueryResults::zip_names_and`
-    /// for a convenience method to match these up.
-    pub fn iter(&self) -> impl Iterator<Item = &[Value]> {
-        self.data.chunks(self.ordering.len())
-    }
-
-    /// Given a slice returned from `QueryResults::iter`, attach variable names
-    /// to the values. This is useful for e.g. collecting into a map.
-    pub fn zip_names_and<'a>(
-        &'a self,
-        values: &'a [Value],
-    ) -> impl Iterator<Item = (&'static str, Value)> + 'a {
-        self.ordering.iter().copied().zip(values.iter().copied())
-    }
-}
-
 /// Run a query on the database.
 pub fn query(egraph: &mut EGraph, facts: &Facts) -> Result<QueryResults, TypeError> {
     let facts = egraph
@@ -72,7 +47,7 @@ pub fn query(egraph: &mut EGraph, facts: &Facts) -> Result<QueryResults, TypeErr
     let query = egraph.compile_gj_query(query, ordering);
 
     let mut results = QueryResults {
-        ordering: ordering.iter().map(|v| v.name.into()).collect(),
+        vars: VarOrdering(ordering.iter().map(|v| v.name.into()).collect()),
         any_matches: false,
         data: vec![],
     };
@@ -82,6 +57,36 @@ pub fn query(egraph: &mut EGraph, facts: &Facts) -> Result<QueryResults, TypeErr
         Ok(())
     });
     Ok(results)
+}
+
+/// The result of running `query`.
+pub struct QueryResults {
+    pub vars: VarOrdering,
+    pub any_matches: bool,
+    data: Vec<Value>,
+}
+
+impl QueryResults {
+    /// Returns an iterator over the results of each query match
+    /// as a slice of `Value`s. The values are in the ordering
+    /// defined by `vars`; see `VarOrdering::zip`.
+    pub fn iter(&self) -> impl Iterator<Item = &[Value]> {
+        self.data.chunks(self.vars.0.len())
+    }
+}
+
+/// A list of variable names.
+pub struct VarOrdering(pub Vec<&'static str>);
+
+impl VarOrdering {
+    /// Given a slice of values, attach variable names to the values.
+    /// This is useful for e.g. collecting into a map.
+    pub fn zip<'a>(
+        &'a self,
+        values: &'a [Value],
+    ) -> impl Iterator<Item = (&'static str, Value)> + 'a {
+        self.0.iter().copied().zip(values.iter().copied())
+    }
 }
 
 pub fn serialize(egraph: &EGraph, config: SerializeConfig) {
@@ -129,7 +134,7 @@ mod tests {
         assert!(results.data.len() == 1);
         for values in results.iter() {
             assert!(values.len() == 1);
-            for (var, val) in results.zip_names_and(values) {
+            for (var, val) in results.vars.zip(values) {
                 assert_eq!(var, "x");
                 assert_eq!(val, 7.into());
             }
