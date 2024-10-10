@@ -81,6 +81,16 @@ impl TypeInfo {
         self.add_arcsort(Arc::new(sort), span).unwrap()
     }
 
+    pub fn add_presort(
+        &mut self,
+        type_name: Symbol,
+        constructors: &[Symbol],
+        make_sort: fn(&mut TypeInfo, Symbol, &[Expr]) -> Result<ArcSort, TypeError>,
+    ) {
+        self.presorts.insert(type_name, make_sort);
+        self.presort_names.extend(constructors);
+    }
+
     pub fn add_arcsort(&mut self, sort: ArcSort, span: Span) -> Result<(), TypeError> {
         let name = sort.name();
 

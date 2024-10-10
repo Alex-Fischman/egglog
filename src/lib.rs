@@ -1487,6 +1487,17 @@ impl EGraph {
         self.type_info.add_arcsort(arcsort, DUMMY_SPAN.clone())
     }
 
+    /// Add a user-defined generic sort
+    pub fn add_presort(
+        &mut self,
+        type_name: Symbol,
+        constructors: &[Symbol],
+        make_sort: fn(&mut TypeInfo, Symbol, &[Expr]) -> Result<ArcSort, TypeError>,
+    ) {
+        self.type_info
+            .add_presort(type_name, constructors, make_sort);
+    }
+
     /// Add a user-defined primitive
     pub fn add_primitive(&mut self, prim: impl Into<Primitive>) {
         self.type_info.add_primitive(prim)
