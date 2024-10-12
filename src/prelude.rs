@@ -46,7 +46,11 @@ pub fn query(egraph: &mut EGraph, facts: &Facts) -> Result<QueryResults, TypeErr
     let ordering = &query.get_vars();
     let query = egraph.compile_gj_query(query, ordering);
 
-    let mut results = QueryResults::new(ordering.iter().map(|v| v.name.into()).collect());
+    let mut results = QueryResults {
+        num_matches: 0,
+        vars: ordering.iter().map(|v| v.name.into()).collect(),
+        data: vec![],
+    };
     egraph.run_query(&query, 0, false, |values| {
         results.num_matches += 1;
         results.data.extend(values);
@@ -61,46 +65,12 @@ pub struct QueryResults {
     num_matches: usize,
     vars: Vec<&'static str>,
     data: Vec<Value>,
-    map: IndexMap<&'static str, Value>,
 }
 
 impl QueryResults {
-    fn new(vars: Vec<&'static str>) -> Self {
-        let map = vars.iter().map(|v| (*v, Value::fake())).collect();
-        QueryResults {
-            num_matches: 0,
-            vars,
-            data: vec![],
-            map,
-        }
-    }
-
-    /// Iterate over the results of the query. Has to take `self` as
-    /// mutable so that the lifetimes can be expressed.
-    pub fn iter(&mut self) -> impl Iterator<Item = &IndexMap<&'static str, Value>> {
-        QueryIterator { ptr: self, idx: 0 }
-    }
-}
-
-struct QueryIterator<'a> {
-    ptr: &'a mut QueryResults,
-    idx: usize,
-}
-
-impl<'a> Iterator for QueryIterator<'a> {
-    type Item = &'a IndexMap<&'static str, Value>;
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.idx >= self.ptr.data.len() {
-            return None;
-        }
-
-        for (i, var) in self.ptr.vars.iter().enumerate() {
-            let val = self.ptr.data[self.idx + i];
-            *self.ptr.map.get_mut(var).unwrap() = val;
-        }
-
-        self.idx += self.ptr.vars.len();
-        Some(&self.ptr.map)
+    /// Iterate over the results of the query.
+    pub fn iter(&self) -> impl Iterator<Item = &[Value]> {
+        self.data.chunks(self.vars.len())
     }
 }
 
@@ -140,13 +110,10 @@ mod tests {
             equals(var("y"), int(13)),
         ]);
 
-        let mut results = query(&mut egraph, &facts)?;
-
-        let mut expected: IndexMap<&str, Value> = Default::default();
-        expected.insert("x", 7.into());
+        let results = query(&mut egraph, &facts)?;
 
         for map in results.iter() {
-            assert_eq!(map, &expected);
+            assert_eq!(map, [7.into()]);
         }
 
         Ok(())
