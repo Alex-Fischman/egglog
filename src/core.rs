@@ -809,7 +809,7 @@ where
             body,
         } = self;
 
-        let (body, _correspondence) = GenericFacts(body.clone()).to_query(typeinfo, fresh_gen);
+        let (body, _correspondence) = Facts(body.clone()).to_query(typeinfo, fresh_gen);
         let mut binding = body.get_vars();
         let (head, _correspondence) = head.to_core_actions(typeinfo, &mut binding, fresh_gen)?;
         Ok(GenericCoreRule {
