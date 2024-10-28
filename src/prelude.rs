@@ -23,60 +23,113 @@ pub mod fact {
         Fact::Eq(DUMMY_SPAN.clone(), vec![a, b])
     }
 
-    pub fn facts(facts: Vec<Fact>) -> Facts {
-        GenericFacts(facts)
+    pub fn facts(facts: Vec<Fact>) -> Facts<Symbol, Symbol> {
+        Facts(facts)
     }
 }
 
-/// Run a query on the database.
-pub fn query(egraph: &mut EGraph, facts: &Facts) -> Result<QueryResults, TypeError> {
-    let facts = egraph
-        .type_info
-        .typecheck_facts(&mut egraph.symbol_gen, &facts.0)?;
-    let facts = crate::remove_globals::remove_globals_facts(&facts);
+pub mod sort {
+    use super::*;
 
-    let rule = ast::ResolvedRule {
-        span: DUMMY_SPAN.clone(),
-        head: ResolvedActions::default(),
-        body: facts,
-    };
-    let core_rule = rule.to_canonicalized_core_rule(&egraph.type_info, &mut egraph.symbol_gen)?;
-    let query = core_rule.body;
+    pub fn int() -> ArcSort {
+        Arc::new(I64Sort)
+    }
+}
 
-    let ordering = &query.get_vars();
-    let query = egraph.compile_gj_query(query, ordering);
+struct SimplePrimitive<F: Fn(&[Value], (&[ArcSort], &ArcSort), &mut EGraph)> {
+    name: Symbol,
+    input: Vec<ArcSort>,
+    func: F,
+}
 
-    let mut results = QueryResults {
-        num_matches: 0,
-        vars: ordering.iter().map(|v| v.name.into()).collect(),
-        data: vec![],
-    };
-    egraph.run_query(&query, 0, false, |values| {
-        results.num_matches += 1;
-        results.data.extend(values);
-        Ok(())
+impl<F: Fn(&[Value], (&[ArcSort], &ArcSort), &mut EGraph)> PrimitiveLike for SimplePrimitive<F> {
+    fn name(&self) -> Symbol {
+        self.name
+    }
+
+    fn get_type_constraints(&self, span: &Span) -> Box<dyn TypeConstraint> {
+        let sorts: Vec<_> = self
+            .input
+            .iter()
+            .chain(once(&(Arc::new(UnitSort) as Arc<dyn Sort>)))
+            .cloned()
+            .collect();
+        SimpleTypeConstraint::new(self.name(), sorts, span.clone()).into_box()
+    }
+    fn apply(
+        &self,
+        values: &[Value],
+        sorts: (&[ArcSort], &ArcSort),
+        egraph: Option<&mut EGraph>,
+    ) -> Option<Value> {
+        let egraph = egraph.expect("SimplePrimitive should not be used in a query");
+        (self.func)(values, sorts, egraph);
+        Some(Value::unit())
+    }
+}
+
+/// Add a rule to the e-graph. Returns the ruleset name.
+pub fn rule(
+    egraph: &mut EGraph,
+    vars: &[(&str, ArcSort)],
+    facts: Facts<Symbol, Symbol>,
+    func: impl Fn(&[Value], (&[ArcSort], &ArcSort), &mut EGraph) + 'static,
+) -> Result<Symbol, Error> {
+    let prim_name = egraph.symbol_gen.fresh(&Symbol::from("rust_rule_prim"));
+    egraph.add_primitive(SimplePrimitive {
+        name: prim_name,
+        input: vars.iter().map(|(_, s)| s.clone()).collect(),
+        func,
     });
-    assert_eq!(results.num_matches * ordering.len(), results.data.len());
-    Ok(results)
+
+    let rule = Rule {
+        span: DUMMY_SPAN.clone(),
+        head: GenericActions(vec![GenericAction::Expr(
+            DUMMY_SPAN.clone(),
+            expr::call(
+                prim_name.into(),
+                vars.iter().map(|(v, _)| expr::var(v)).collect(),
+            ),
+        )]),
+        body: facts.0,
+    };
+
+    let rule_name = format!("{}", rule).into();
+    let ruleset = egraph.symbol_gen.fresh(&"rust_rule_ruleset".into());
+    egraph.run_program(vec![
+        Command::AddRuleset(ruleset),
+        Command::Rule {
+            name: rule_name,
+            rule,
+            ruleset,
+        },
+    ])?;
+
+    Ok(ruleset)
 }
 
-/// The result of running `query`.
-pub struct QueryResults {
-    num_matches: usize,
-    vars: Vec<&'static str>,
-    data: Vec<Value>,
-}
-
-impl QueryResults {
-    /// Iterate over the results of the query.
-    pub fn iter(&self) -> impl Iterator<Item = &[Value]> {
-        self.data.chunks(self.vars.len())
-    }
+pub fn run_rule(
+    egraph: &mut EGraph,
+    vars: &[(&str, ArcSort)],
+    facts: Facts<Symbol, Symbol>,
+    func: impl Fn(&[Value], (&[ArcSort], &ArcSort), &mut EGraph) + 'static,
+) -> Result<(), Error> {
+    let ruleset = rule(egraph, vars, facts, func)?;
+    egraph.run_program(vec![Command::RunSchedule(Schedule::Run(
+        DUMMY_SPAN.clone(),
+        RunConfig {
+            ruleset,
+            until: None,
+        },
+    ))])?;
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::RefCell;
+    use std::rc::Rc;
 
     fn build_test_database() -> Result<EGraph, Error> {
         let mut egraph = EGraph::default();
@@ -87,10 +140,10 @@ mod tests {
 (set (fib 0) 0)
 (set (fib 1) 1)
 (rule (
-	(= f0 (fib x))
+    (= f0 (fib x))
     (= f1 (fib (+ x 1)))
 ) (
-	(set (fib (+ x 2)) (+ f0 f1))
+    (set (fib (+ x 2)) (+ f0 f1))
 ))
 (run 10)
         ",
@@ -105,16 +158,23 @@ mod tests {
 
         let mut egraph = build_test_database()?;
 
-        let facts = facts(vec![
-            equals(call("fib", vec![var("x")]), var("y")),
-            equals(var("y"), int(13)),
-        ]);
+        let results = Rc::new(RefCell::new(Vec::new()));
+        let results_clone = results.clone();
 
-        let results = query(&mut egraph, &facts)?;
+        run_rule(
+            &mut egraph,
+            &[("x", sort::int()), ("y", sort::int())],
+            facts(vec![
+                equals(call("fib", vec![var("x")]), var("y")),
+                equals(var("y"), int(13)),
+            ]),
+            move |values: &[Value], _, _| {
+                let [x, y] = values else { unreachable!() };
+                results_clone.borrow_mut().push((*x, *y));
+            },
+        )?;
 
-        for map in results.iter() {
-            assert_eq!(map, [7.into()]);
-        }
+        assert_eq!(*results.borrow(), [(Value::from(7), Value::from(13))]);
 
         Ok(())
     }
