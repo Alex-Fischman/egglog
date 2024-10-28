@@ -36,13 +36,13 @@ pub mod sort {
     }
 }
 
-struct SimplePrimitive<F: Fn(&[Value], (&[ArcSort], &ArcSort), &mut EGraph)> {
+struct RustRuleRhs<F: Fn(&[Value], (&[ArcSort], &ArcSort), &mut EGraph)> {
     name: Symbol,
     input: Vec<ArcSort>,
     func: F,
 }
 
-impl<F: Fn(&[Value], (&[ArcSort], &ArcSort), &mut EGraph)> PrimitiveLike for SimplePrimitive<F> {
+impl<F: Fn(&[Value], (&[ArcSort], &ArcSort), &mut EGraph)> PrimitiveLike for RustRuleRhs<F> {
     fn name(&self) -> Symbol {
         self.name
     }
@@ -62,7 +62,7 @@ impl<F: Fn(&[Value], (&[ArcSort], &ArcSort), &mut EGraph)> PrimitiveLike for Sim
         sorts: (&[ArcSort], &ArcSort),
         egraph: Option<&mut EGraph>,
     ) -> Option<Value> {
-        let egraph = egraph.expect("SimplePrimitive should not be used in a query");
+        let egraph = egraph.expect("RustRuleRhs should not be used in a query");
         (self.func)(values, sorts, egraph);
         Some(Value::unit())
     }
@@ -76,7 +76,7 @@ pub fn rule(
     func: impl Fn(&[Value], (&[ArcSort], &ArcSort), &mut EGraph) + 'static,
 ) -> Result<Symbol, Error> {
     let prim_name = egraph.symbol_gen.fresh(&Symbol::from("rust_rule_prim"));
-    egraph.add_primitive(SimplePrimitive {
+    egraph.add_primitive(RustRuleRhs {
         name: prim_name,
         input: vars.iter().map(|(_, s)| s.clone()).collect(),
         func,
