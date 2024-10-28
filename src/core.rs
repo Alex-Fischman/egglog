@@ -37,14 +37,14 @@ impl<Head> HeadOrEq<Head> {
 }
 
 #[derive(Debug, Clone)]
-pub struct SpecializedPrimitive {
+pub(crate) struct SpecializedPrimitive {
     pub(crate) primitive: Primitive,
     pub(crate) input: Vec<ArcSort>,
     pub(crate) output: ArcSort,
 }
 
 #[derive(Debug, Clone)]
-pub enum ResolvedCall {
+pub(crate) enum ResolvedCall {
     Func(FuncType),
     Primitive(SpecializedPrimitive),
 }

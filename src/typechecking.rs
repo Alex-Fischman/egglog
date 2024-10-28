@@ -395,7 +395,7 @@ impl TypeInfo {
         })
     }
 
-    pub fn typecheck_facts(
+    fn typecheck_facts(
         &self,
         symbol_gen: &mut SymbolGen,
         facts: &[Fact],
@@ -410,7 +410,7 @@ impl TypeInfo {
         Ok(annotated_facts)
     }
 
-    pub fn typecheck_actions(
+    fn typecheck_actions(
         &self,
         symbol_gen: &mut SymbolGen,
         actions: &Actions,

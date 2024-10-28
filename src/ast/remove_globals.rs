@@ -51,13 +51,6 @@ pub(crate) fn remove_globals(
         .collect()
 }
 
-pub(crate) fn remove_globals_facts(facts: &[ResolvedFact]) -> Vec<ResolvedFact> {
-    facts
-        .iter()
-        .map(|fact| fact.clone().visit_exprs(&mut replace_global_vars))
-        .collect()
-}
-
 fn resolved_var_to_call(var: &ResolvedVar) -> ResolvedCall {
     assert!(
         var.is_global_ref,
