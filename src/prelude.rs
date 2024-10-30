@@ -108,13 +108,7 @@ pub fn rule(
     Ok(ruleset)
 }
 
-pub fn run_rule(
-    egraph: &mut EGraph,
-    vars: &[(&str, ArcSort)],
-    facts: Facts<Symbol, Symbol>,
-    func: impl Fn(&[Value], (&[ArcSort], &ArcSort), &mut EGraph) + 'static,
-) -> Result<(), Error> {
-    let ruleset = rule(egraph, vars, facts, func)?;
+pub fn run_ruleset(egraph: &mut EGraph, ruleset: Symbol) -> Result<(), Error> {
     egraph.run_program(vec![Command::RunSchedule(Schedule::Run(
         DUMMY_SPAN.clone(),
         RunConfig {
@@ -125,11 +119,36 @@ pub fn run_rule(
     Ok(())
 }
 
+pub fn query(
+    egraph: &mut EGraph,
+    vars: &[(&str, ArcSort)],
+    facts: Facts<Symbol, Symbol>,
+) -> Result<Vec<Vec<Value>>, Error> {
+    use std::{cell::RefCell, rc::Rc};
+
+    let results = Rc::new(RefCell::new(Vec::new()));
+    let results_weak = Rc::downgrade(&results);
+
+    let ruleset = rule(
+        egraph,
+        vars,
+        facts,
+        move |values, _, _| match results_weak.upgrade() {
+            Some(rc) => rc.borrow_mut().push(values.to_vec()),
+            None => panic!("one-shot rule was called twice"),
+        },
+    )?;
+    run_ruleset(egraph, ruleset)?;
+
+    match Rc::into_inner(results) {
+        Some(refcell) => Ok(refcell.into_inner()),
+        None => panic!("results_weak.upgrade() was not dropped"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::cell::RefCell;
-    use std::rc::Rc;
 
     fn build_test_database() -> Result<EGraph, Error> {
         let mut egraph = EGraph::default();
@@ -152,29 +171,75 @@ mod tests {
     }
 
     #[test]
-    fn test_query() -> Result<(), Error> {
+    fn rust_api_query() -> Result<(), Error> {
         use expr::*;
         use fact::*;
 
         let mut egraph = build_test_database()?;
 
-        let results = Rc::new(RefCell::new(Vec::new()));
-        let results_clone = results.clone();
-
-        run_rule(
+        let results = query(
             &mut egraph,
             &[("x", sort::int()), ("y", sort::int())],
             facts(vec![
                 equals(call("fib", vec![var("x")]), var("y")),
                 equals(var("y"), int(13)),
             ]),
-            move |values: &[Value], _, _| {
-                let [x, y] = values else { unreachable!() };
-                results_clone.borrow_mut().push((*x, *y));
+        )?;
+
+        assert_eq!(results, [[Value::from(7), Value::from(13)]]);
+
+        Ok(())
+    }
+
+    #[test]
+    fn rust_api_rule() -> Result<(), Error> {
+        use expr::*;
+        use fact::*;
+
+        let mut egraph = build_test_database()?;
+
+        let big_number = 20;
+
+        // check that `fib` does not contain `20`
+        let results = query(
+            &mut egraph,
+            &[("f", sort::int())],
+            facts(vec![equals(call("fib", vec![int(big_number)]), var("f"))]),
+        )?;
+
+        assert!(results.is_empty());
+
+        // add the rule from `build_test_database` to the egraph with a handle
+        let ruleset = rule(
+            &mut egraph,
+            &[("x", sort::int()), ("f0", sort::int()), ("f1", sort::int())],
+            facts(vec![
+                equals(var("f0"), call("fib", vec![var("x")])),
+                equals(
+                    var("f1"),
+                    call("fib", vec![call("+", vec![var("x"), int(1)])]),
+                ),
+            ]),
+            |values, _, egraph| {
+                let [x, f0, f1] = values else { unreachable!() };
+                let a = Value::from(i64::load(&I64Sort, x) + 2);
+                let b = Value::from(i64::load(&I64Sort, f0) + i64::load(&I64Sort, f1));
+                egraph.functions[&Symbol::from("fib")].insert(&[a], b, egraph.timestamp);
             },
         )?;
 
-        assert_eq!(*results.borrow(), [(Value::from(7), Value::from(13))]);
+        // run that rule 10 times
+        for _ in 0..10 {
+            run_ruleset(&mut egraph, ruleset)?;
+        }
+
+        // check that `fib` now contains `20`
+        let results = query(
+            &mut egraph,
+            &[("f", sort::int())],
+            facts(vec![equals(call("fib", vec![int(big_number)]), var("f"))]),
+        )?;
+        assert_eq!(results, [[Value::from(6765)]]);
 
         Ok(())
     }
