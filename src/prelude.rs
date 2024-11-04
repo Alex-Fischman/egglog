@@ -19,12 +19,8 @@ pub mod expr {
 pub mod fact {
     use super::*;
 
-    pub fn equals(a: Expr, b: Expr) -> Fact {
-        Fact::Eq(DUMMY_SPAN.clone(), vec![a, b])
-    }
-
-    pub fn facts(facts: Vec<Fact>) -> Facts<Symbol, Symbol> {
-        Facts(facts)
+    pub fn equals(args: Vec<Expr>) -> Fact {
+        Fact::Eq(DUMMY_SPAN.clone(), args)
     }
 }
 
@@ -34,6 +30,26 @@ pub mod sort {
     pub fn int() -> ArcSort {
         Arc::new(I64Sort)
     }
+}
+
+#[macro_export]
+macro_rules! expr {
+    ((unquote $unquoted:expr)) => { $unquoted };
+    (($func:tt $($arg:tt)*)) => { expr::call(stringify!($func), vec![$(expr!($arg)),*]) };
+    // TODO: this matches ALL literals as ints
+    ($value:literal) => { expr::int($value) };
+    ($quoted:tt) => { expr::var(stringify!($quoted)) };
+}
+
+#[macro_export]
+macro_rules! fact {
+    ((= $($arg:tt)*)) => { fact::equals(vec![$(expr!($arg)),*]) };
+    ($a:tt) => { Fact::Fact(expr!($a)) };
+}
+
+#[macro_export]
+macro_rules! facts {
+    ($($tree:tt)*) => { Facts(vec![$(fact!($tree)),*]) };
 }
 
 struct RustRuleRhs<F: Fn(&[Value], (&[ArcSort], &ArcSort), &mut EGraph)> {
@@ -172,18 +188,15 @@ mod tests {
 
     #[test]
     fn rust_api_query() -> Result<(), Error> {
-        use expr::*;
-        use fact::*;
-
         let mut egraph = build_test_database()?;
 
         let results = query(
             &mut egraph,
             &[("x", sort::int()), ("y", sort::int())],
-            facts(vec![
-                equals(call("fib", vec![var("x")]), var("y")),
-                equals(var("y"), int(13)),
-            ]),
+            facts![
+                (= (fib x) y)
+                (= y 13)
+            ],
         )?;
 
         assert_eq!(results, [[Value::from(7), Value::from(13)]]);
@@ -193,9 +206,6 @@ mod tests {
 
     #[test]
     fn rust_api_rule() -> Result<(), Error> {
-        use expr::*;
-        use fact::*;
-
         let mut egraph = build_test_database()?;
 
         let big_number = 20;
@@ -204,7 +214,7 @@ mod tests {
         let results = query(
             &mut egraph,
             &[("f", sort::int())],
-            facts(vec![equals(call("fib", vec![int(big_number)]), var("f"))]),
+            facts![(= (fib (unquote expr::int(big_number))) f)],
         )?;
 
         assert!(results.is_empty());
@@ -213,13 +223,10 @@ mod tests {
         let ruleset = rule(
             &mut egraph,
             &[("x", sort::int()), ("f0", sort::int()), ("f1", sort::int())],
-            facts(vec![
-                equals(var("f0"), call("fib", vec![var("x")])),
-                equals(
-                    var("f1"),
-                    call("fib", vec![call("+", vec![var("x"), int(1)])]),
-                ),
-            ]),
+            facts![
+                (= f0 (fib x))
+                (= f1 (fib (+ x 1)))
+            ],
             |values, _, egraph| {
                 let [x, f0, f1] = values else { unreachable!() };
                 let a = Value::from(i64::load(&I64Sort, x) + 2);
@@ -237,7 +244,7 @@ mod tests {
         let results = query(
             &mut egraph,
             &[("f", sort::int())],
-            facts(vec![equals(call("fib", vec![int(big_number)]), var("f"))]),
+            facts![(= (fib (unquote expr::int(big_number))) f)],
         )?;
         assert_eq!(results, [[Value::from(6765)]]);
 
