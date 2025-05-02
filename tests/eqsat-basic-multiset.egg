@@ -8,7 +8,6 @@
     (Mul Math Math)
     (Product MathMultiSet)
     (Sum MathMultiSet))
-  (sort MathToMath (UnstableFn (Math) Math))
   (sort MathMultiSet (MultiSet Math)))
 
 ;; expr1 = 2 * (x + 3)
@@ -63,6 +62,7 @@
 ;; so instead we can define a function and partially apply it to get the same function as the lambda
 (constructor tmp-fn (MathMultiSet Math) Math)
 (rewrite (tmp-fn xs x) (Product (multiset-insert xs x)))
+(sort MathToMath (UnstableFn (Math) Math))
 
 (rule
   (
@@ -76,7 +76,7 @@
   (
     (union product (Sum
       (unstable-multiset-map
-        (unstable-fn "tmp-fn" a)
+        (unstable-fn "tmp-fn" "MathMultiSet" a)
         bc)
     ))
   )
