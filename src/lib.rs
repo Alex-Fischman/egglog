@@ -1414,7 +1414,7 @@ impl EGraph {
                     .create(true)
                     .open(&filename)
                     .map_err(|e| Error::IoError(filename.clone(), e, span.clone()))?;
-    
+
                 let unit_id = self.backend.primitives().get_ty::<()>();
                 let unit_val = self.backend.primitives().get(());
 
@@ -1430,7 +1430,6 @@ impl EGraph {
                             },
                         ));
 
-
                 let mut translator = BackendRule::new(
                     self.backend.new_rule("outputs", false),
                     &self.functions,
@@ -1439,7 +1438,10 @@ impl EGraph {
                 let expr_types = exprs.iter().map(|e| e.output_type()).collect::<Vec<_>>();
                 for expr in exprs {
                     let result_var = ResolvedVar {
-                        name: self.parser.symbol_gen.fresh(&Symbol::from("__egglog_output")),
+                        name: self
+                            .parser
+                            .symbol_gen
+                            .fresh(&Symbol::from("__egglog_output")),
                         sort: expr.output_type(),
                         is_global_ref: false,
                     };
